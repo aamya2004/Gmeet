@@ -1,16 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import Peer from "simple-peer";
-import io from "socket.io-client";
-// import "./App.css";
-
-const socket = io.connect('http://localhost:9000');
+import { io } from "socket.io-client";
 
 function App() {
   const [me, setMe] = useState("");
-  const [stream, setStream] = useState();
+  const [stream, setStream] = useState(null);
   const [receivingCall, setReceivingCall] = useState(false);
   const [caller, setCaller] = useState("");
-  const [callerSignal, setCallerSignal] = useState();
+  const [callerSignal, setCallerSignal] = useState(null);
   const [callAccepted, setCallAccepted] = useState(false);
   const [idToCall, setIdToCall] = useState("");
   const [callEnded, setCallEnded] = useState(false);
@@ -20,21 +17,27 @@ function App() {
   const connectionRef = useRef();
 
   useEffect(() => {
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
-      setStream(stream);
-      myVideo.current.srcObject = stream;
-    });
-
+    const socket = io("http://localhost:9000");
+    console.log(stream);
+    navigator.mediaDevices
+        .getUserMedia({ video: true, audio: true })
+        .then((currentStream) => {
+          setStream(currentStream);
+          console.log(currentStream);
+          myVideo.current.srcObject = currentStream;
+        });
     socket.on("me", (id) => {
+      console.log(id);
       setMe(id);
     });
-
+    
     socket.on("callUser", (data) => {
       setReceivingCall(true);
       setCaller(data.from);
       setName(data.name);
       setCallerSignal(data.signal);
     });
+    //getUserStream();
   }, []);
 
   const callUser = (id) => {
@@ -53,22 +56,23 @@ function App() {
       });
     });
 
-    peer.on("stream", (stream) => {
+    peer.on("stream", (currentStream) => {
       if (userVideo.current) {
-        userVideo.current.srcObject = stream;
+        userVideo.current.srcObject = currentStream;
       }
     });
 
-    // Additional check to ensure peer.signal is available before calling it
-    if (peer.signal) {
-      peer.signal(callerSignal);
-    }
+    socket.on("callAccepted", (signal) => {
+      setCallAccepted(true);
+      peer.signal(signal);
+    });
 
     connectionRef.current = peer;
   };
 
   const answerCall = () => {
     setCallAccepted(true);
+
     const peer = new Peer({
       initiator: false,
       trickle: false,
@@ -85,8 +89,11 @@ function App() {
       }
     });
 
+    // Check if callerSignal is valid before calling peer.signal
     if (callerSignal && peer.signal) {
       peer.signal(callerSignal);
+    } else {
+      console.error("Invalid callerSignal or peer.signal is not available");
     }
 
     connectionRef.current = peer;
@@ -99,16 +106,28 @@ function App() {
 
   return (
     <>
-      <h1 style={{ textAlign: "center", color: '#fff' }}>Zoomish</h1>
+      <h1 style={{ textAlign: "center", color: "#fff" }}>Zoomish</h1>
       <div className="container">
         <div className="video-container">
           <div className="video">
-            {stream && <video playsInline muted ref={myVideo} autoPlay style={{ width: "300px" }} />}
+              <video
+                playsInline
+                muted
+                ref={myVideo}
+                autoPlay
+                style={{ width: "300px" }}
+              />
+
           </div>
           <div className="video">
-            {callAccepted && !callEnded ?
-              <video playsInline ref={userVideo} autoPlay style={{ width: "300px" }} /> :
-              null}
+            {callAccepted && !callEnded ? (
+              <video
+                playsInline
+                ref={userVideo}
+                autoPlay
+                style={{ width: "300px" }}
+              />
+            ) : null}
           </div>
         </div>
         <div className="myId">
@@ -119,8 +138,9 @@ function App() {
             onChange={(e) => setName(e.target.value)}
             style={{ marginBottom: "20px" }}
           />
-          <button onClick={() => navigator.clipboard.writeText(me)}>Copy ID</button>
-
+          <button onClick={async () => await navigator.clipboard.writeText(me)}>
+            Copy ID
+          </button>
           <input
             type="text"
             placeholder="ID to call"
@@ -129,13 +149,9 @@ function App() {
           />
           <div className="call-button">
             {callAccepted && !callEnded ? (
-              <button onClick={leaveCall}>
-                End Call
-              </button>
+              <button onClick={leaveCall}>End Call</button>
             ) : (
-              <button onClick={() => callUser(idToCall)}>
-                Call
-              </button>
+              <button onClick={() => callUser(idToCall)}>Call</button>
             )}
             {idToCall}
           </div>
@@ -144,9 +160,7 @@ function App() {
           {receivingCall && !callAccepted ? (
             <div className="caller">
               <h1>{name} is calling...</h1>
-              <button onClick={answerCall}>
-                Answer
-              </button>
+              <button onClick={answerCall}>Answer</button>
             </div>
           ) : null}
         </div>
